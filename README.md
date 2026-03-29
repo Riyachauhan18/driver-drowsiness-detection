@@ -12,6 +12,7 @@ This project detects driver drowsiness using a webcam by analyzing eye closure a
 * Yawning detection using MAR (Mouth Aspect Ratio)
 * Adaptive threshold calibration (user-specific)
 * Lightweight and fast (no GPU required)
+* Real-time performance (~30 FPS, <100ms latency)
 
 ---
 
