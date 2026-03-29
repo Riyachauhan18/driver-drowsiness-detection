@@ -35,6 +35,7 @@ This project detects driver drowsiness using a webcam by analyzing eye closure a
 
 ## How to Run
 pip install -r requirements.txt
+
 python main.py
 
 ---
