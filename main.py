@@ -1,65 +1,62 @@
 import cv2
 import mediapipe as mp
 import numpy as np
-import time
+import threading
+import winsound
+from collections import deque
+import joblib
+
+model = joblib.load("drowsiness_model.pkl")
 
 mp_face_mesh = mp.solutions.face_mesh
-mp_drawing = mp.solutions.drawing_utils
 
-# Eye landmarks
-LEFT_EYE = [33, 160, 158, 133, 153, 144]
-RIGHT_EYE = [362, 385, 387, 263, 373, 380]
-
-# Mouth landmarks
-MOUTH = [13, 14, 78, 308]
+LEFT_EYE = [33,160,158,133,153,144]
+RIGHT_EYE = [362,385,387,263,373,380]
 
 cap = cv2.VideoCapture(0)
 
-calibration_frames = 120
+# -------- CALIBRATION --------
+calibration_frames = 60
 ear_values = []
 calibrated = False
-dynamic_threshold = 0
+baseline = 0
 
-closed_counter = 0
-yawn_counter = 0
+# -------- DETECTION --------
+closed_frames = 0
+FRAME_THRESHOLD = 8   # balanced
 
-ALERT_TIME = 2  # seconds
-start_closed_time = None
+# -------- YAWN --------
+yawn_frames = 0
+YAWN_THRESHOLD = 12
+
+# -------- SMOOTHING --------
+ear_buffer = deque(maxlen=5)
+
+alarm_on = False
+
+def play_alarm():
+    winsound.Beep(1200, 120)
 
 def euclidean(p1, p2):
     return np.linalg.norm(np.array(p1) - np.array(p2))
 
-def calculate_EAR(landmarks, eye_indices, w, h):
-    points = []
-    for idx in eye_indices:
-        x = int(landmarks[idx].x * w)
-        y = int(landmarks[idx].y * h)
-        points.append((x, y))
+def calculate_EAR(lm, eye, w, h):
+    pts = [(int(lm[i].x*w), int(lm[i].y*h)) for i in eye]
+    return (euclidean(pts[1], pts[5]) + euclidean(pts[2], pts[4])) / (2*euclidean(pts[0], pts[3]))
 
-    vertical1 = euclidean(points[1], points[5])
-    vertical2 = euclidean(points[2], points[4])
-    horizontal = euclidean(points[0], points[3])
-
-    ear = (vertical1 + vertical2) / (2.0 * horizontal)
-    return ear
-
-def calculate_MAR(landmarks, w, h):
-    top = (int(landmarks[13].x * w), int(landmarks[13].y * h))
-    bottom = (int(landmarks[14].x * w), int(landmarks[14].y * h))
-    left = (int(landmarks[78].x * w), int(landmarks[78].y * h))
-    right = (int(landmarks[308].x * w), int(landmarks[308].y * h))
-
-    vertical = euclidean(top, bottom)
-    horizontal = euclidean(left, right)
-
-    mar = vertical / horizontal
-    return mar
+def calculate_MAR(lm, w, h):
+    top = (int(lm[13].x*w), int(lm[13].y*h))
+    bottom = (int(lm[14].x*w), int(lm[14].y*h))
+    left = (int(lm[78].x*w), int(lm[78].y*h))
+    right = (int(lm[308].x*w), int(lm[308].y*h))
+    return euclidean(top,bottom)/euclidean(left,right)
 
 with mp_face_mesh.FaceMesh(
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5) as face_mesh:
+    max_num_faces=1,
+    refine_landmarks=False,
+    min_detection_confidence=0.6,
+    min_tracking_confidence=0.6
+) as face_mesh:
 
     while True:
         ret, frame = cap.read()
@@ -71,78 +68,86 @@ with mp_face_mesh.FaceMesh(
         results = face_mesh.process(rgb)
 
         if results.multi_face_landmarks:
-            landmarks = results.multi_face_landmarks[0].landmark
+            lm = results.multi_face_landmarks[0].landmark
 
-            left_ear = calculate_EAR(landmarks, LEFT_EYE, w, h)
-            right_ear = calculate_EAR(landmarks, RIGHT_EYE, w, h)
-            ear = (left_ear + right_ear) / 2.0
+            ear = (calculate_EAR(lm, LEFT_EYE, w, h) +
+                   calculate_EAR(lm, RIGHT_EYE, w, h)) / 2
 
-            mar = calculate_MAR(landmarks, w, h)
+            ear_buffer.append(ear)
+            ear = sum(ear_buffer)/len(ear_buffer)
 
-            # ---------------- CALIBRATION PHASE ----------------
+            mar = calculate_MAR(lm, w, h)
+
+            # -------- CALIBRATION --------
             if not calibrated:
                 ear_values.append(ear)
-                cv2.putText(frame, "Calibrating... Keep eyes open",
-                            (30, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.8, (255, 255, 0), 2)
+                cv2.putText(frame,"Calibrating...",(30,50),
+                            cv2.FONT_HERSHEY_SIMPLEX,0.8,(0,255,255),2)
 
                 if len(ear_values) >= calibration_frames:
-                    baseline = sum(ear_values) / len(ear_values)
-                    dynamic_threshold = baseline * 0.75
+                    baseline = np.mean(ear_values)
                     calibrated = True
-                    print("Calibration Done")
-                    print("Baseline EAR:", baseline)
-                    print("Dynamic Threshold:", dynamic_threshold)
 
-            # ---------------- DETECTION PHASE ----------------
             else:
-                # Eye closure detection
-                if ear < dynamic_threshold:
-                    if start_closed_time is None:
-                        start_closed_time = time.time()
-                else:
-                    start_closed_time = None
+                # -------- RELATIVE DROP --------
+                drop = baseline - ear
 
-                # Yawn detection
+                if drop > 0.05:
+                    closed_frames += 1
+                else:
+                    closed_frames = 0
+
+                eye_drowsy = closed_frames >= FRAME_THRESHOLD
+
+                # -------- YAWN --------
                 if mar > 0.6:
-                    yawn_counter += 1
+                    yawn_frames += 1
                 else:
-                    yawn_counter = 0
+                    yawn_frames = 0
 
-                drowsy = False
+                yawning = yawn_frames >= YAWN_THRESHOLD
 
-                # If eyes closed long enough
-                if start_closed_time:
-                    if time.time() - start_closed_time > ALERT_TIME:
-                        drowsy = True
+                # -------- ML --------
+                ml_pred = model.predict([[ear, mar]])[0]
 
-                # If yawning + semi closed
-                if mar > 0.6 and ear < baseline * 0.85:
-                    drowsy = True
-
-                if drowsy:
+                # -------- FINAL DECISION --------
+                if eye_drowsy:
                     text = "DROWSY ALERT!"
-                    color = (0, 0, 255)
+                    color = (0,0,255)
+
+                elif yawning:
+                    text = "YAWNING"
+                    color = (0,165,255)
+
+                elif ml_pred == 1 and drop > 0.03:
+                    text = "DROWSY (ML)"
+                    color = (0,0,255)
+
                 else:
                     text = "Normal"
-                    color = (0, 255, 0)
+                    color = (0,255,0)
 
-                cv2.putText(frame, text, (30, 50),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            1, color, 3)
+                # -------- ALERT --------
+                if "DROWSY" in text and not alarm_on:
+                    alarm_on = True
+                    threading.Thread(target=play_alarm).start()
+                elif "DROWSY" not in text:
+                    alarm_on = False
 
-                cv2.putText(frame, f"EAR: {round(ear,3)}",
-                            (30, 90), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7, (255,255,255), 2)
+                # -------- DISPLAY --------
+                cv2.putText(frame,text,(30,50),
+                            cv2.FONT_HERSHEY_SIMPLEX,1,color,3)
 
-                cv2.putText(frame, f"MAR: {round(mar,3)}",
-                            (30, 120), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7, (255,255,255), 2)
+                cv2.putText(frame,f"EAR:{round(ear,3)}",(30,90),
+                            cv2.FONT_HERSHEY_SIMPLEX,0.7,(255,255,255),2)
 
-        cv2.imshow("Driver Drowsiness - Adaptive System", frame)
+                cv2.putText(frame,f"MAR:{round(mar,3)}",(30,120),
+                            cv2.FONT_HERSHEY_SIMPLEX,0.7,(255,255,255),2)
+
+        cv2.imshow("Universal Drowsiness System",frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
 cap.release()
-cv2.destroyAllWindows()
+cv2.destroyAllWindows() 
