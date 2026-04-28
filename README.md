@@ -1,58 +1,53 @@
-#Driver Drowsiness Detection System
-A real-time driver drowsiness detection system using facial landmark analysis (EAR & MAR).
----
-##  Overview
+# 🚗 Driver Drowsiness Detection System
 
-This project detects driver drowsiness using a webcam by analyzing eye closure and yawning patterns. It uses Mediapipe for facial landmark detection and applies adaptive thresholding for personalized accuracy.
----
-
-## Features
-* Real-time webcam-based detection
-* Eye closure detection using EAR (Eye Aspect Ratio)
-* Yawning detection using MAR (Mouth Aspect Ratio)
-* Adaptive threshold calibration (user-specific)
-* Lightweight and fast (no GPU required)
-* Real-time performance (~30 FPS, <100ms latency)
+A real-time driver drowsiness detection system using **Computer Vision + Hybrid Machine Learning**.
 
 ---
 
-## Tech Stack
-* Python
-* OpenCV
-* Mediapipe
-* NumPy
+## 📌 Overview
+This project detects driver fatigue using:
+- Eye Aspect Ratio (EAR)
+- Mouth Aspect Ratio (MAR)
+- Hybrid logic (Adaptive + ML)
+
+The system works in real-time using a webcam and alerts the user when drowsiness is detected.
 
 ---
 
-## How It Works
-1. Capture video using webcam
-2. Detect face and extract landmarks
-3. Calculate EAR & MAR
-4. Calibrate user-specific threshold
-5. Detect drowsiness based on conditions
-6. Display real-time alert
+## 🚀 Features
+- Real-time detection (25–30 FPS)
+- EAR-based eye closure detection
+- MAR-based yawning detection
+- Adaptive calibration (works for all users)
+- Hybrid model (Rule-based + ML)
+- Audio alert system
 
 ---
 
-## How to Run
+## 📂 Dataset
+- Custom dataset (`EAR, MAR, Label`)
+- Label:
+  - 0 → Alert
+  - 1 → Drowsy
+
+---
+
+## 🤖 Models Used
+- Logistic Regression
+- Support Vector Machine (SVM)
+- Decision Tree
+
+---
+
+## 🧠 Hybrid Approach
+The system combines:
+- Adaptive thresholding (personalized)
+- Relative EAR drop detection
+- ML model (secondary validation)
+
+---
+
+## ⚙️ Installation
+
+```bash
 pip install -r requirements.txt
-
-python main.py
-
----
-
-##  Key Innovations
-* Adaptive learning using real-time calibration
-* Hybrid detection (eye + mouth)
-* ML-inspired intelligent system
-* Real-time performance
-
----
-
-##  Future Scope
-* Add alarm/voice alert
-* Mobile app integration
-* Deep learning enhancement
----
-
-⭐ If you like this project, give it a star!
